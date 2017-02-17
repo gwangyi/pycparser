@@ -12,6 +12,47 @@ __version__ = '2.17'
 
 from subprocess import Popen, PIPE
 from .c_parser import CParser
+from .ply import cpp
+from .ply import lex
+
+
+def preprocess_file_embedded(filename, cpp_path=None, cpp_args=''):
+    if not isinstance(cpp_args, list):
+        cpp_args = [cpp_args]
+
+    lexer = lex.lex(module=cpp)
+    try:
+        if issubclass(cpp_path, cpp.Preprocessor):
+            preprocessor = cpp_path
+        else:
+            raise TypeError
+    except TypeError:
+        preprocessor = cpp.Preprocessor
+    p = preprocessor(lexer)
+
+    for cpp_arg in cpp_args:
+        if cpp_arg[:2] == '-I':
+            p.add_path(cpp_arg[2:])
+        elif cpp_arg[:2] == '-D':
+            p.define(cpp_args[2:].replace('=', ' ', 1))
+
+    with open(filename, 'rU') as f:
+        p.parse(f.read(), filename)
+
+    processed = []
+    latest = ''
+    while True:
+        tok = p.token()
+        if not tok:
+            break
+
+        if latest != p.source:
+            processed.append('\n# {} "{}"\n'.format(tok.lineno, p.source))
+            latest = p.source
+
+        processed.append(tok.value)
+
+    return ''.join(processed)
 
 
 def preprocess_file(filename, cpp_path='cpp', cpp_args=''):
@@ -82,7 +123,9 @@ def parse_file(filename, use_cpp=False, cpp_path='cpp', cpp_args='',
 
         Errors from cpp will be printed out.
     """
-    if use_cpp:
+    if use_cpp == "embedded":
+        text = preprocess_file_embedded(filename, cpp_path, cpp_args)
+    elif use_cpp:
         text = preprocess_file(filename, cpp_path, cpp_args)
     else:
         with open(filename, 'rU') as f:
